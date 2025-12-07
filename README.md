@@ -1,0 +1,327 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
+
+- [Overview](#overview)
+- [Design](#design)
+    - [Features](#features)
+- [Script Organization](#script-organization)
+    - [Creating Scripts](#creating-scripts)
+    - [Scanning Directories](#scanning-directories)
+- [Usage Examples](#usage-examples)
+- [Installation](#installation)
+    - [Prerequisites](#prerequisites)
+    - [dotc](#dotc)
+- [Appendix](#appendix)
+    - [Sub-Command Naming Logic](#sub-command-naming-logic)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+<a name="top"></a>
+<a name="overview"></a>
+
+# Overview
+
+As systems engineers, we spend much of our time on our command-line terminals
+interacting with a myriad of systems in support of the overarching infrastructure.
+
+Our daily tasks can often be repetitive, 
+which is why we often find ourselves utilizing 
+or creating automation to lessen our keystrokes.
+
+This brings us to a question:
+
+- _What do you get when each member of a team of engineers has an affinity
+  for creating their own little scripts to make their lives easier?_<br />
+  Hint: It's something messy.
+  
+The *dotc* (dot-commander) tool aims to clean up this proclivity for command-line mess in the team setting
+by unifying disparate pieces of automation into a single entrypoint, thus 
+creating a homogenous command-line experience.
+
+This is accomplished by a simple shell script that automatically discovers executables
+organized in directories and creates wrapper scripts with dot-notation naming,
+making them easily accessible from anywhere.
+
+The following sections go over this in detail.
+
+<a name="design"></a>
+# Design
+
+The *dotc* tool is a bash/zsh-compatible shell script that:
+
+- Scans directories recursively for executable files
+- Automatically creates wrapper scripts for discovered executables
+- Generates aliases for quick access to commands
+- Supports namespace organization via configuration or git repository detection
+- Creates a unified command index in YAML format
+
+<a name="features"></a>
+## Features
+
+  - Commands are executables organized by subfolders in a scanned directory<br />
+    (See the Appendix for list of supported executable types)
+  - Subfolders are interpreted as namespace components for<br />
+    the given scripts/executables contained therein
+  - Subcommands follow a dot-notation style of reference, e.g.<br />
+    _namespace.folder.subfolder.command_<sup> [1](#sub-command-naming-logic)</sup>
+  - Automatic namespace detection from `.dot-commander.yaml` or git repository name
+  - Automatic wrapper script generation in `${HOME}/dot-commander/bin`
+  - Automatic alias generation for shell init files (`~/.bashrc`, `~/.zshrc`)
+
+<a name="installation"></a>
+# Installation
+
+<a name="prerequisites"></a>
+## Prerequisites
+
+You'll need:
+
+- **bash** or **zsh** shell
+- **yq** - A YAML processor (for parsing command index)
+  - Install via package manager:
+    - macOS: `brew install yq`
+    - Linux: `apt-get install yq` or `yum install yq`
+    - Or download from [https://github.com/mikefarah/yq](https://github.com/mikefarah/yq)
+
+<a name="dotc"></a>
+## Installing dotc
+
+### Quick Install (Recommended)
+
+The easiest way to install dotc is using the one-line installer:
+
+```bash
+bash < <(curl -s -S -L https://raw.githubusercontent.com/berttejeda/bert.dot-commander/master/binscripts/dotc-installer)
+```
+
+This will:
+- Download and install `dotc` to `/usr/local/bin`
+- Automatically initialize dotc
+- Update your shell profile files (`.bashrc`, `.zshrc`, or `.profile`)
+- Set up the PATH configuration
+
+After installation, reload your shell:
+```bash
+source ~/.bashrc  # or source ~/.zshrc
+```
+
+### Manual Installation
+
+If you prefer to install manually:
+
+1. **Clone or download the repository**:
+   ```bash
+   git clone https://github.com/berttejeda/bert.dot-commander.git
+   cd bert.dot-commander
+   ```
+
+2. **Make the script executable**:
+   ```bash
+   chmod +x dotc
+   ```
+
+3. **Add to your PATH** (optional but recommended):
+   ```bash
+   # Option 1: Symlink to a directory in your PATH
+   sudo ln -s $(pwd)/dotc /usr/local/bin/dotc
+   
+   # Option 2: Add the directory to your PATH
+   # Add this to your ~/.bashrc or ~/.zshrc:
+   export PATH="$PATH:/path/to/bert.dot-commander"
+   ```
+
+4. **Initialize dotc**:
+   ```bash
+   dotc ---init
+   ```
+
+   This will:
+   - Create the dot-commander workspace directory at `${HOME}/dot-commander`
+   - Add initialization blocks to your `~/.bashrc` and `~/.zshrc`
+   - Set up the PATH to include `${HOME}/dot-commander/bin`
+
+5. **Reload your shell** or source your init file:
+   ```bash
+   source ~/.bashrc  # or source ~/.zshrc
+   ```
+
+The next section will cover script organization and usage.
+
+[Back to Top](#top)
+<a name="script-organization"></a>
+# Script Organization
+
+dotc works by scanning directories for executable files and creating wrapper scripts
+that can be invoked using dot-notation.
+
+<a name="creating-scripts"></a>
+## Creating Scripts
+
+Scripts are really easy to create - they are simply executable 
+files organized into folders. The folder structure determines the command namespace.
+
+You need only enough proficiency to write a script in bash, zsh, python, powershell, 
+or any other language that supports shebangs (e.g., `#!/usr/bin/env bash`).
+
+**Requirements for scripts to be discovered:**
+
+1. The file must be executable (`chmod +x script.sh`)
+2. The file must have a shebang on line 1 (e.g., `#!/usr/bin/env bash`)
+3. Files in `node_modules` and `.git` directories are automatically excluded
+
+**Example script structure:**
+
+```
+~/scripts/
+├── git/
+│   ├── create-issue-branch.sh
+│   └── get-bitbucketfile.ps1
+├── k8s/
+│   ├── trigger-rolling-update.sh
+│   └── get-stats.sh
+└── aws/
+    └── query.py
+```
+
+<a name="scanning-directories"></a>
+## Scanning Directories
+
+To make your scripts available via dotc, simply scan the directory containing them:
+
+```bash
+dotc ---scan ~/scripts
+```
+
+This will:
+- Initialize dotc if not already done
+- Scan `~/scripts` recursively for executable files
+- Create wrapper scripts in `${HOME}/dot-commander/bin`
+- Generate a command index in YAML format
+- Create aliases in your shell init files
+
+After scanning, you can view available commands:
+
+```bash
+dotc ---help
+```
+
+And execute them using dot-notation:
+
+```bash
+dotc git.create-issue-branch
+dotc k8s.trigger-rolling-update
+dotc aws.query
+```
+
+[Back to Top](#top)
+<a name="usage-examples"></a>
+# Usage Examples
+
+## Basic Usage
+
+**Initialize dotc:**
+```bash
+dotc ---init
+```
+
+**Scan a directory for scripts:**
+```bash
+dotc ---scan ~/my-scripts
+```
+
+**View available commands:**
+```bash
+dotc ---help
+```
+
+**Execute a command:**
+```bash
+dotc git.create-issue-branch feature/new-feature
+```
+
+**Execute a nested command:**
+```bash
+# For a file at ~/scripts/remote/dev/test.sh
+dotc remote.dev.test
+```
+
+## Namespace Configuration
+
+**Using `.dot-commander.yaml`:**
+
+Create a `.dot-commander.yaml` file in your scripts directory:
+
+```yaml
+namespace: 'myproject'
+```
+
+Then scan the directory:
+```bash
+dotc ---scan ~/scripts
+```
+
+Commands will be prefixed with the namespace:
+- `myproject.git.create-issue-branch`
+- `myproject.k8s.trigger-rolling-update`
+
+**Automatic Git Repository Detection:**
+
+If your scripts directory is a git repository, dotc will automatically use
+the repository name as the namespace:
+
+```bash
+# If ~/scripts is a git repo named "my-automation"
+dotc ---scan ~/scripts
+# Commands will be: my-automation.git.create-issue-branch, etc.
+```
+
+## Using Aliases
+
+After scanning, aliases are automatically created in your shell init files.
+You can use them directly:
+
+```bash
+dotc.git.create-issue-branch feature/new-feature
+```
+
+[Back to Top](#top)
+<a name="appendix"></a>
+# Appendix
+
+<a name="sub-command-naming-logic"></a>
+## Sub-Command Naming Logic
+
+As mentioned in the previous sections, commands follow a dot-notation style of reference.
+
+The naming convention works as follows:
+
+1. **If a namespace is defined** (via `.dot-commander.yaml` or git repository):
+   - Format: `namespace.folder.subfolder.command`
+   - Example: `myproject.git.create-issue-branch`
+
+2. **If no namespace is defined**:
+   - Format: `folder.subfolder.command`
+   - Example: `git.create-issue-branch`
+
+3. **For nested paths**:
+   - A file at `~/scripts/remote/dev/test.sh` becomes:
+     - With namespace: `namespace.remote.dev.test`
+     - Without namespace: `remote.dev.test`
+
+4. **Files in the root of the scanned directory**:
+   - Become `namespace.root.scriptname` (with namespace)
+   - Or `root.scriptname` (without namespace)
+
+### Supported Executable Types
+
+dotc supports any executable file with a shebang, including:
+
+- **Shell scripts**: `#!/usr/bin/env bash`, `#!/usr/bin/env zsh`, `#!/usr/bin/env sh`
+- **Python scripts**: `#!/usr/bin/env python`, `#!/usr/bin/env python3`
+- **PowerShell scripts**: `#!/usr/bin/env pwsh`
+- **Other interpreted languages**: Any executable with a valid shebang
+
+Binary executables without shebangs are skipped during scanning.
+
+[Back to Top](#top)
