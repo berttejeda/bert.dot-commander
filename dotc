@@ -89,13 +89,38 @@ determine_namespace() {
 
 # Get the shell type (bash or zsh)
 get_shell_type() {
+    # First check if we're actually running in zsh
     if [ -n "${ZSH_VERSION:-}" ]; then
         echo "zsh"
-    elif [ -n "${BASH_VERSION:-}" ]; then
-        echo "bash"
-    else
-        echo "bash"  # default to bash
+        return 0
     fi
+    
+    # Check the $SHELL environment variable (user's default shell)
+    if [ -n "${SHELL:-}" ]; then
+        case "$SHELL" in
+            *zsh*)
+                echo "zsh"
+                return 0
+                ;;
+            *bash*)
+                echo "bash"
+                return 0
+                ;;
+        esac
+    fi
+    
+    # Check parent process if available
+    local parent_shell=$(ps -p ${PPID:-$$} -o comm= 2>/dev/null || echo "")
+    if [[ "$parent_shell" == *zsh* ]]; then
+        echo "zsh"
+        return 0
+    elif [[ "$parent_shell" == *bash* ]]; then
+        echo "bash"
+        return 0
+    fi
+    
+    # Default to bash if we can't determine
+    echo "bash"
 }
 
 # Check if a file has a shebang
@@ -412,12 +437,204 @@ init_dot_commander() {
     log_info "Run \`dotc ---help\` for usage information"
 }
 
+# Get available commands (for completion)
+get_available_commands() {
+    if [ ! -f "$DC_COMMAND_INDEX" ]; then
+        return 0
+    fi
+    
+    check_yq >&2
+    
+    # Parse YAML and extract command names
+    local commands
+    commands=$(yq eval '.commands[].name' "$DC_COMMAND_INDEX" 2>/dev/null || echo "")
+    
+    # Filter out log messages and output commands
+    while IFS= read -r cmd; do
+        if [ -n "$cmd" ] && [[ ! "$cmd" =~ ^[0-9]{12}[[:space:]]+INFO: ]]; then
+            echo "$cmd"
+        fi
+    done <<< "$commands"
+}
+
+# Generate bash completion script
+generate_bash_completion() {
+    cat <<'EOFBASH'
+# bash completion for dotc
+_dotc_completion() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    
+    # Main options
+    opts="---init ---scan ---help ---completion"
+    
+    # If we're completing the first argument and it starts with ---, complete options
+    if [[ ${cur} == ---* ]]; then
+        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        return 0
+    fi
+    
+    # If previous word is ---scan, complete directories
+    if [[ ${prev} == ---scan ]]; then
+        COMPREPLY=( $(compgen -d -- ${cur}) )
+        return 0
+    fi
+    
+    # Otherwise, complete with available commands from command index
+    local command_index="${HOME}/dot-commander/bin/commands.yaml"
+    local commands=""
+    
+    if [ -f "$command_index" ] && command -v yq &> /dev/null; then
+        commands=$(yq eval '.commands[].name' "$command_index" 2>/dev/null | grep -v "^[0-9]\{12\}[[:space:]]\+INFO:" || echo "")
+    fi
+    
+    if [ -n "$commands" ]; then
+        COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+    fi
+}
+
+complete -F _dotc_completion dotc
+EOFBASH
+}
+
+# Generate zsh completion script
+generate_zsh_completion() {
+    cat <<'EOF'
+#compdef dotc
+
+_dotc() {
+    local context state line
+    local -a commands flags
+    
+    flags=(
+        '---init:Initialize the script'\''s internal config'
+        '---scan:Scan target directory for executables'
+        '---help:Show help message'
+        '---completion:Generate completion scripts'
+    )
+    
+    # Get available commands from command index
+    if [ -f "${HOME}/dot-commander/bin/commands.yaml" ]; then
+        if command -v yq &> /dev/null; then
+            commands=($(yq eval '.commands[].name' "${HOME}/dot-commander/bin/commands.yaml" 2>/dev/null | grep -v "^[0-9]\{12\}[[:space:]]\+INFO:" || echo ""))
+        fi
+    fi
+    
+    _arguments -C \
+        "1: :->command" \
+        "*::arg:->args"
+    
+    case $state in
+        command)
+            if [[ $words[2] == ---* ]]; then
+                _describe 'flags' flags
+            else
+                _describe 'commands' commands
+            fi
+            ;;
+        args)
+            case $words[2] in
+                ---scan)
+                    _files -/
+                    ;;
+                *)
+                    _files
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_dotc "$@"
+EOF
+}
+
+# Install completion scripts
+install_completion() {
+    local shell_type=$(get_shell_type)
+    local completion_installed=false
+    
+    if [ "$shell_type" = "bash" ]; then
+        # Try to find bash completion directory
+        local bash_completion_dir=""
+        
+        # Check common locations
+        if [ -d "${HOME}/.bash_completion.d" ]; then
+            bash_completion_dir="${HOME}/.bash_completion.d"
+        elif [ -d "/usr/local/etc/bash_completion.d" ]; then
+            bash_completion_dir="/usr/local/etc/bash_completion.d"
+        elif [ -d "/etc/bash_completion.d" ]; then
+            bash_completion_dir="/etc/bash_completion.d"
+        fi
+        
+        if [ -n "$bash_completion_dir" ]; then
+            generate_bash_completion > "${bash_completion_dir}/dotc"
+            chmod +x "${bash_completion_dir}/dotc"
+            log_info "Bash completion installed to ${bash_completion_dir}/dotc"
+            completion_installed=true
+            
+            # Add source line to .bashrc if not present
+            if ! grep -q "source.*bash_completion.d/dotc" "${HOME}/.bashrc" 2>/dev/null; then
+                echo "" >> "${HOME}/.bashrc"
+                echo "# dot-commander completion" >> "${HOME}/.bashrc"
+                echo "[ -f ${bash_completion_dir}/dotc ] && source ${bash_completion_dir}/dotc" >> "${HOME}/.bashrc"
+                log_info "Added completion source to ~/.bashrc"
+            fi
+        else
+            log_warn "Could not find bash completion directory. Please install manually:"
+            echo "  dotc ---completion > /path/to/completion/dir/dotc"
+        fi
+    elif [ "$shell_type" = "zsh" ]; then
+        # Try to find zsh completion directory
+        local zsh_completion_dir=""
+        
+        # Check common locations
+        if [ -d "${HOME}/.zsh/completions" ]; then
+            zsh_completion_dir="${HOME}/.zsh/completions"
+        elif [ -d "${HOME}/.zsh/functions" ]; then
+            zsh_completion_dir="${HOME}/.zsh/functions"
+        else
+            # Create directory if it doesn't exist
+            zsh_completion_dir="${HOME}/.zsh/completions"
+            mkdir -p "$zsh_completion_dir"
+        fi
+        
+        if [ -n "$zsh_completion_dir" ]; then
+            generate_zsh_completion > "${zsh_completion_dir}/_dotc"
+            chmod +x "${zsh_completion_dir}/_dotc"
+            log_info "Zsh completion installed to ${zsh_completion_dir}/_dotc"
+            completion_installed=true
+            
+            # Add to fpath in .zshrc if not present
+            if ! grep -q "fpath.*zsh/completions" "${HOME}/.zshrc" 2>/dev/null; then
+                echo "" >> "${HOME}/.zshrc"
+                echo "# dot-commander completion" >> "${HOME}/.zshrc"
+                echo "fpath=(${zsh_completion_dir} \$fpath)" >> "${HOME}/.zshrc"
+                echo "autoload -U compinit && compinit" >> "${HOME}/.zshrc"
+                log_info "Added completion to fpath in ~/.zshrc"
+            fi
+        fi
+    fi
+    
+    if [ "$completion_installed" = true ]; then
+        log_info "Completion installed successfully. Reload your shell or run:"
+        if [ "$shell_type" = "bash" ]; then
+            echo "  source ~/.bashrc"
+        else
+            echo "  source ~/.zshrc"
+        fi
+    fi
+}
+
 # Show help message
 show_help() {
     echo "Usage:"
     echo "  dotc ---init: Initialize the script's internal config"
     echo "  dotc ---scan <target_dir>: Initialize and scan the target directory for executables"
     echo "  dotc ---help: Show this help message"
+    echo "  dotc ---completion: Generate and install shell completion scripts"
     echo "  dotc <sub_command>: Execute a sub-command"
     echo ""
     
@@ -430,19 +647,17 @@ show_help() {
     
     echo "Available Sub Commands:"
     
-    # Parse YAML and extract command names
-    # Redirect stderr to avoid log messages appearing in output
+    # Use the get_available_commands function
     local commands
-    commands=$(yq eval '.commands[].name' "$DC_COMMAND_INDEX" 2>/dev/null || echo "")
+    commands=$(get_available_commands)
     
     if [ -z "$commands" ]; then
         echo "  (no commands found)"
         return 0
     fi
     
-    # Filter out any lines that look like log messages
     while IFS= read -r cmd; do
-        if [ -n "$cmd" ] && [[ ! "$cmd" =~ ^[0-9]{12}[[:space:]]+INFO: ]]; then
+        if [ -n "$cmd" ]; then
             echo "  - $cmd"
         fi
     done <<< "$commands"
@@ -470,6 +685,7 @@ main() {
     local init_flag=false
     local scan_dir=""
     local help_flag=false
+    local completion_flag=false
     local subcommand=""
     local original_args=("$@")
     local args_array=("$@")
@@ -493,6 +709,9 @@ main() {
             ---help)
                 help_flag=true
                 ;;
+            ---completion)
+                completion_flag=true
+                ;;
             *)
                 # This should be the subcommand (first non-flag argument)
                 if [ -z "$subcommand" ] && [[ ! "$arg" =~ ^--- ]]; then
@@ -506,6 +725,11 @@ main() {
     # Handle flags
     if [ "$help_flag" = true ]; then
         show_help
+        exit 0
+    fi
+    
+    if [ "$completion_flag" = true ]; then
+        install_completion
         exit 0
     fi
     
@@ -541,7 +765,7 @@ main() {
             
             # Skip flags
             case "$arg" in
-                ---init|---help)
+                ---init|---help|---completion)
                     continue
                     ;;
                 ---scan)
