@@ -817,6 +817,29 @@ confirm() {
     fi
 }
 
+# Check if running on Windows
+is_windows() {
+    # Check for Windows environment variables
+    if [ -n "${WINDIR:-}" ]; then
+        return 0
+    fi
+    if [ -n "${OS:-}" ] && [[ "${OS}" =~ [Ww][Ii][Nn] ]]; then
+        return 0
+    fi
+    # Check for MSYSTEM (Git Bash on Windows)
+    if [ -n "${MSYSTEM:-}" ]; then
+        return 0
+    fi
+    # Check uname output if available
+    if command -v uname &> /dev/null; then
+        local uname_output=$(uname -s 2>/dev/null || echo "")
+        if [[ "$uname_output" =~ [Mm][Ii][Nn][Gg][Ww] ]] || [[ "$uname_output" =~ [Cc][Yy][Gg][Ww][Ii][Nn] ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Check for updates to ops
 check_ops_updates() {
     local current_version="$__version__"
@@ -870,7 +893,19 @@ update_ops() {
     
     # Backup current version
     local backup_path="${ops_path}.backup.$(date +%Y%m%d%H%M%S)"
-    if sudo -n true 2>/dev/null; then
+    if is_windows; then
+        # On Windows, skip sudo and try direct copy
+        if cp "$ops_path" "$backup_path" 2>/dev/null; then
+            log_info "Backed up current version to ${backup_path}"
+        else
+            log_warn "Could not create backup (may require administrator privileges)"
+            if ! confirm "Do you want to proceed with updating the ops command without a backup? [y/N] "; then
+                log_error "Exiting without updating ops"
+                rm -rf "$temp_dir"
+                return 1
+            fi
+        fi
+    elif sudo -n true 2>/dev/null; then
         echo "Attempting to create a backup via sudo"
         sudo cp "$ops_path" "$backup_path"
         log_info "Backed up current version to ${backup_path}"
@@ -880,6 +915,7 @@ update_ops() {
             log_info "Skipping backup"
         else
             log_error "Exiting without updating ops"
+            rm -rf "$temp_dir"
             return 1
         fi
     fi    
@@ -888,6 +924,15 @@ update_ops() {
     if [ -w "$(dirname "$ops_path")" ]; then
         cp "$temp_dir/repo/ops" "$ops_path"
         chmod +x "$ops_path"
+    elif is_windows; then
+        # On Windows, try direct copy (may require administrator privileges)
+        if cp "$temp_dir/repo/ops" "$ops_path" 2>/dev/null; then
+            chmod +x "$ops_path" 2>/dev/null || true
+        else
+            log_error "Failed to update ops. You may need to run as administrator."
+            rm -rf "$temp_dir"
+            return 1
+        fi
     else
         sudo cp "$temp_dir/repo/ops" "$ops_path"
         sudo chmod +x "$ops_path"
