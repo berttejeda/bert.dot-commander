@@ -457,7 +457,7 @@ scan_and_create_wrappers() {
         echo "    path: \"${file}\"" >> "$temp_index"
         
         # Add to aliases
-        if [[ -n $OPSC_ALIAS_PREFIX ]];then 
+        if [[ -n "${OPSC_ALIAS_PREFIX:-}" ]];then 
           alias_entries+=("alias ${OPSC_ALIAS_PREFIX}.${wrapper_name}=\"${OPSC_BIN_DIR}/${wrapper_name}.sh\"")
         else
           alias_entries+=("alias ${wrapper_name}=\"${OPSC_BIN_DIR}/${wrapper_name}.sh\"")
