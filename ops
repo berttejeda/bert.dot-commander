@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.4.1"
+__version__="0.4.2"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
@@ -364,6 +364,26 @@ clone_git_repo() {
     echo "$repo_path"
 }
 
+# Update a single git repository
+update_single_repo() {
+    local repo_path="$1"
+    
+    if [ ! -d "$repo_path" ] || [ ! -d "$repo_path/.git" ]; then
+        log_error "Repository not found or not a git repository: ${repo_path}"
+        return 1
+    fi
+    
+    log_info "Updating repository: $repo_path"
+    (
+        cd "$repo_path" || return 1
+        # Discard all local changes and untracked files
+        git clean -f . > /dev/null 2>&1
+        git checkout . > /dev/null 2>&1
+        # Now pull updates
+        git pull --quiet 2>/dev/null || log_warn "Failed to update $repo_path"
+    )
+}
+
 # Scan directory for executables and create wrappers
 scan_and_create_wrappers() {
     local scan_target="$1"
@@ -371,7 +391,38 @@ scan_and_create_wrappers() {
     
     # Check if scan_target is a git URL
     if is_git_url "$scan_target"; then
-        scan_dir=$(clone_git_repo "$scan_target")
+        # Check for backward compatibility: old path structure ${OPSC_WORKSPACE_DIR}/git/${OWNER}/${REPO}
+        local owner=""
+        local repo=""
+        
+        # Parse git URL to extract owner and repo for backward compatibility check
+        # Support HTTPS format: https://server.com/owner/repo.git
+        if [[ "$scan_target" =~ ^https://[^/]+/([^/]+)/([^/]+)\.git$ ]]; then
+            owner="${BASH_REMATCH[1]}"
+            repo="${BASH_REMATCH[2]}"
+        # Support SSH format: git@server.com:owner/repo.git
+        elif [[ "$scan_target" =~ ^git@[^:]+:([^/]+)/([^/]+)\.git$ ]]; then
+            owner="${BASH_REMATCH[1]}"
+            repo="${BASH_REMATCH[2]}"
+        fi
+        
+        # Check if repository exists at old path structure
+        if [ -n "$owner" ] && [ -n "$repo" ]; then
+            local old_path="${OPSC_WORKSPACE_DIR}/git/${owner}/${repo}"
+            
+            if [ -d "$old_path" ] && [ -d "$old_path/.git" ]; then
+                log_info "Found existing repository at old path: ${old_path}"
+                log_info "Updating repository instead of cloning"
+                update_single_repo "$old_path"
+                scan_dir="$old_path"
+            else
+                # Use new structure with server-based paths
+                scan_dir=$(clone_git_repo "$scan_target")
+            fi
+        else
+            # Fallback to normal clone if parsing fails
+            scan_dir=$(clone_git_repo "$scan_target")
+        fi
     else
         scan_dir="$scan_target"
     fi
