@@ -9,6 +9,7 @@
     - [Creating Scripts](#creating-scripts)
     - [Scanning Directories](#scanning-directories)
 - [Usage Examples](#usage-examples)
+- [Configuration](#configuration)
 - [Installation](#installation)
     - [Prerequisites](#prerequisites)
     - [ops](#ops)
@@ -168,7 +169,7 @@ or any other language that supports shebangs (e.g., `#!/usr/bin/env bash`).
 
 1. The file must be executable (`chmod +x script.sh`)
 2. The file must have a shebang on line 1 (e.g., `#!/usr/bin/env bash`)
-3. Files in `node_modules` and `.git` directories are automatically excluded
+3. Files in certain directories are automatically excluded (see [Configuration](#configuration) section)
 
 **Example script structure:**
 
@@ -235,6 +236,16 @@ ops ---scan ~/my-scripts
 ops ---help
 ```
 
+**Update command repositories:**
+```bash
+ops ---update-command-repos
+```
+
+**Check for updates:**
+```bash
+ops ---update
+```
+
 **Execute a command:**
 ```bash
 ops git.create-issue-branch feature/new-feature
@@ -283,6 +294,59 @@ You can use them directly:
 
 ```bash
 ops.git.create-issue-branch feature/new-feature
+```
+
+## Command Reference
+
+### Available Flags
+
+- `ops ---init`: Initialize the script's internal config
+- `ops ---scan <target_dir>`: Initialize and scan the target directory for executables
+- `ops ---help`: Show help message with available commands
+- `ops ---version`: Show version information
+- `ops ---completion`: Generate and install shell completion scripts
+- `ops ---update`: Check for updates and update ops and command repositories
+- `ops ---update-command-repos`: Update local command repositories only (without checking for ops updates)
+
+[Back to Top](#top)
+<a name="configuration"></a>
+# Configuration
+
+## Environment Variables
+
+ops can be configured using the following environment variables:
+
+### `OPSC_WORKSPACE_DIR`
+
+Sets the workspace directory where ops stores its data. Defaults to `${HOME}/ops-command`.
+
+```bash
+export OPSC_WORKSPACE_DIR="${HOME}/my-custom-ops-workspace"
+```
+
+### `OPSC_EXCLUDE_DIRS`
+
+Configures which directory patterns to exclude during scanning. Defaults to:
+- `*/node_modules/*`
+- `*/.git/*`
+- `*/venv/*`
+- `*/lib/*`
+- `*/dist/*`
+
+To customize excluded directories:
+
+```bash
+export OPSC_EXCLUDE_DIRS=("*/node_modules/*" "*/.git/*" "*/custom_dir/*")
+ops ---scan ~/scripts
+```
+
+### `OPSC_ALIAS_PREFIX`
+
+Optional prefix for generated aliases. If set, aliases will be prefixed with this value.
+
+```bash
+export OPSC_ALIAS_PREFIX="myops"
+# Aliases will be: myops.namespace.command instead of namespace.command
 ```
 
 [Back to Top](#top)
