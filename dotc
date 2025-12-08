@@ -827,6 +827,9 @@ update_command_repos() {
         echo "  - $repo"
     done
     echo ""
+    echo -e "${YELLOW}WARNING: Updating repositories will discard all local changes!${NC}"
+    echo "This will run 'git clean -f . && git checkout .' before pulling updates."
+    echo ""
     
     read -p "Would you like to update these repositories? [y/N] " -n 1 -r
     echo
@@ -837,7 +840,14 @@ update_command_repos() {
     
     for repo in "${repos[@]}"; do
         log_info "Updating repository: $repo"
-        (cd "$repo" && git pull --quiet 2>/dev/null || log_warn "Failed to update $repo")
+        (
+            cd "$repo" || return 1
+            # Discard all local changes and untracked files
+            git clean -f . > /dev/null 2>&1
+            git checkout . > /dev/null 2>&1
+            # Now pull updates
+            git pull --quiet 2>/dev/null || log_warn "Failed to update $repo"
+        )
     done
     
     log_info "Repository updates complete"
