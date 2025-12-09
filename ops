@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.5.0"
+__version__="0.6.0"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
@@ -580,11 +580,16 @@ scan_and_create_wrappers() {
         echo "  - name: \"${wrapper_name}\"" >> "$temp_index"
         echo "    path: \"${file}\"" >> "$temp_index"
         
-        # Add to aliases
+        # Add to aliases (strip namespace prefix from alias name)
+        local alias_name="$wrapper_name"
+        if [ -n "$OPSC_NAMESPACE" ] && [[ "$wrapper_name" == "${OPSC_NAMESPACE}."* ]]; then
+            alias_name="${wrapper_name#${OPSC_NAMESPACE}.}"
+        fi
+        
         if [[ -n "${OPSC_ALIAS_PREFIX:-}" ]];then 
-          alias_entries+=("alias ${OPSC_ALIAS_PREFIX}.${wrapper_name}=\"${OPSC_BIN_DIR}/${wrapper_name}.sh\"")
+          alias_entries+=("alias ${OPSC_ALIAS_PREFIX}.${alias_name}=\"${OPSC_BIN_DIR}/${wrapper_name}.sh\"")
         else
-          alias_entries+=("alias ${wrapper_name}=\"${OPSC_BIN_DIR}/${wrapper_name}.sh\"")
+          alias_entries+=("alias ${alias_name}=\"${OPSC_BIN_DIR}/${wrapper_name}.sh\"")
         fi
 
         
