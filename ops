@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.6.0"
+__version__="0.7.0"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
@@ -62,7 +62,7 @@ determine_namespace() {
             log_error "yq is required but not installed. Please install yq first." >&2
             exit 2
         fi
-        namespace=$(yq eval '.namespace // ""' "$config_file" 2>/dev/null || echo "")
+        namespace=$(yq eval '.commands.namespace // ""' "$config_file" 2>/dev/null || echo "")
         if [ -n "$namespace" ]; then
             if [ "$quiet" != "true" ]; then
                 log_info "Found namespace in .ops-command.yaml: ${namespace}" >&2
@@ -89,6 +89,36 @@ determine_namespace() {
     fi
     
     # No namespace found
+    echo ""
+    return 0
+}
+
+# Determine alias prefix from scan directory
+determine_alias_prefix() {
+    local scan_dir="$1"
+    local alias_prefix=""
+    local quiet="${2:-false}"  # Optional quiet mode parameter
+    
+    # Check for .ops-command.yaml file
+    local config_file="${scan_dir}/.ops-command.yaml"
+    if [ -f "$config_file" ]; then
+        # Suppress check_yq output - it will exit if yq is not found
+        if ! command -v yq &> /dev/null; then
+            log_error "yq is required but not installed. Please install yq first." >&2
+            exit 2
+        fi
+        alias_prefix=$(yq eval '.aliases.namespace // ""' "$config_file" 2>/dev/null || echo "")
+        if [ -n "$alias_prefix" ]; then
+            if [ "$quiet" != "true" ]; then
+                log_info "Found alias prefix in .ops-command.yaml: ${alias_prefix}" >&2
+            fi
+            # Only output the alias prefix value to stdout
+            echo "$alias_prefix"
+            return 0
+        fi
+    fi
+    
+    # No alias prefix found
     echo ""
     return 0
 }
@@ -498,6 +528,15 @@ scan_and_create_wrappers() {
     # Determine namespace from the cloned/scan directory
     local OPSC_NAMESPACE
     OPSC_NAMESPACE=$(determine_namespace "$scan_dir")
+    
+    # Determine alias prefix from the cloned/scan directory (only if not already set)
+    if [ -z "${OPSC_ALIAS_PREFIX:-}" ]; then
+        local config_alias_prefix
+        config_alias_prefix=$(determine_alias_prefix "$scan_dir")
+        if [ -n "$config_alias_prefix" ]; then
+            OPSC_ALIAS_PREFIX="$config_alias_prefix"
+        fi
+    fi
     
     # Create bin directory
     mkdir -p "${OPSC_BIN_DIR}"
