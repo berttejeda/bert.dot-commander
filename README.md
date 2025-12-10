@@ -191,15 +191,30 @@ or any other language that supports shebangs (e.g., `#!/usr/bin/env bash`).
 <a name="scanning-directories"></a>
 ## Scanning Directories
 
-To make your scripts available via ops, simply scan the directory containing them:
+To make your scripts available via ops, you can scan either a local directory or a git repository URL:
 
+**Scan a local directory:**
 ```bash
 ops ---scan ~/scripts
 ```
 
-This will:
+**Scan a git repository (HTTPS or SSH):**
+```bash
+# HTTPS format
+ops ---scan https://github.com/owner/repo.git
+
+# SSH format
+ops ---scan git@github.com:owner/repo.git
+```
+
+When scanning a git repository URL, ops will:
+- Clone the repository to `${HOME}/ops-command/git/<server>/<owner>/<repo>`
+- If the repository already exists, it will update it instead of cloning
+- Then scan the cloned repository for executables
+
+**What happens during scanning:**
 - Initialize ops if not already done
-- Scan `~/scripts` recursively for executable files
+- Scan the directory recursively for executable files
 - Create wrapper scripts in `${HOME}/ops-command/bin`
 - Generate a command index in YAML format
 - Create aliases in your shell init files
@@ -234,6 +249,15 @@ ops ---init
 ops ---scan ~/my-scripts
 ```
 
+**Scan a git repository:**
+```bash
+# Clone and scan a repository from GitHub
+ops ---scan https://github.com/owner/repo.git
+
+# Or using SSH
+ops ---scan git@github.com:owner/repo.git
+```
+
 **View available commands:**
 ```bash
 ops ---help
@@ -243,6 +267,7 @@ ops ---help
 ```bash
 ops ---update-command-repos
 ```
+This updates all git repositories that were previously scanned via URL. It will discard local changes and pull the latest updates.
 
 **Check for updates:**
 ```bash
@@ -290,7 +315,7 @@ See the [Configuration](#configuration) section for details on alias prefixes an
 ### Available Flags
 
 - `ops ---init`: Initialize the script's internal config
-- `ops ---scan <target_dir>`: Initialize and scan the target directory for executables
+- `ops ---scan <target_dir>`: Initialize and scan the target directory for executables (can be a local path or git repository URL)
 - `ops ---help`: Show help message with available commands
 - `ops ---version`: Show version information
 - `ops ---completion`: Generate and install shell completion scripts
