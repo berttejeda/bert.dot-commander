@@ -69,6 +69,8 @@ The *ops* tool is a bash/zsh-compatible shell script that:
   - Automatic namespace detection from `.ops-command.yaml` or git repository name
   - Automatic wrapper script generation in `${HOME}/ops-command/bin`
   - Automatic alias generation for shell init files (`~/.bashrc`, `~/.zshrc`)
+  - Built-in function library automatically sourced during initialization
+  - By default, aliases exclude namespace prefix for easier command access
 
 <a name="installation"></a>
 # Installation
@@ -141,6 +143,7 @@ If you prefer to install manually:
    - Create the ops-command workspace directory at `${HOME}/ops-command`
    - Add initialization blocks to your `~/.bashrc` and `~/.zshrc`
    - Set up the PATH to include `${HOME}/ops-command/bin`
+   - Source functions from `${HOME}/ops-command/lib/functions` (if installed)
 
 5. **Reload your shell** or source your init file:
    ```bash
@@ -264,7 +267,10 @@ ops remote.dev.test
 Create a `.ops-command.yaml` file in your scripts directory:
 
 ```yaml
-namespace: 'myproject'
+commands:
+  namespace: 'myproject'
+aliases:
+  namespace: 'myops'  # Optional: prefix for aliases
 ```
 
 Then scan the directory:
@@ -272,29 +278,12 @@ Then scan the directory:
 ops ---scan ~/scripts
 ```
 
-Commands will be prefixed with the namespace:
-- `myproject.git.create-issue-branch`
-- `myproject.k8s.trigger-rolling-update`
-
 **Automatic Git Repository Detection:**
 
 If your scripts directory is a git repository, ops will automatically use
-the repository name as the namespace:
+the repository name as the command namespace.
 
-```bash
-# If ~/scripts is a git repo named "my-automation"
-ops ---scan ~/scripts
-# Commands will be: my-automation.git.create-issue-branch, etc.
-```
-
-## Using Aliases
-
-After scanning, aliases are automatically created in your shell init files.
-You can use them directly:
-
-```bash
-ops.git.create-issue-branch feature/new-feature
-```
+See the [Configuration](#configuration) section for details on alias prefixes and the [Sub-Command Naming Logic](#sub-command-naming-logic) section for complete naming details.
 
 ## Command Reference
 
@@ -342,12 +331,28 @@ ops ---scan ~/scripts
 
 ### `OPSC_ALIAS_PREFIX`
 
-Optional prefix for generated aliases. If set, aliases will be prefixed with this value.
+Optional prefix for generated aliases. By default, aliases exclude the command namespace prefix for easier access. If `OPSC_ALIAS_PREFIX` is set, it will be added as a prefix to aliases.
 
+**Setting via environment variable:**
 ```bash
 export OPSC_ALIAS_PREFIX="myops"
-# Aliases will be: myops.namespace.command instead of namespace.command
 ```
+
+**Setting via `.ops-command.yaml`:**
+
+You can also configure the alias prefix per repository using the `.aliases.namespace` key in `.ops-command.yaml`:
+
+```yaml
+aliases:
+  namespace: 'myops'  # Sets OPSC_ALIAS_PREFIX for this repository
+```
+
+**Priority:**
+- Environment variable `OPSC_ALIAS_PREFIX` takes precedence over config file
+- If not set via environment variable, the value from `.aliases.namespace` in `.ops-command.yaml` is used
+- If neither is set, aliases are created without a prefix
+
+See the [Sub-Command Naming Logic](#sub-command-naming-logic) section for examples of how aliases are generated.
 
 [Back to Top](#top)
 <a name="appendix"></a>
@@ -360,22 +365,39 @@ As mentioned in the previous sections, commands follow a dot-notation style of r
 
 The naming convention works as follows:
 
-1. **If a namespace is defined** (via `.ops-command.yaml` or git repository):
-   - Format: `namespace.folder.subfolder.command`
-   - Example: `myproject.git.create-issue-branch`
+**Wrapper Script Names** (used for the actual script files in `${HOME}/ops-command/bin`):
 
-2. **If no namespace is defined**:
-   - Format: `folder.subfolder.command`
-   - Example: `git.create-issue-branch`
+1. **If a command namespace is defined** (via `.commands.namespace` in `.ops-command.yaml` or git repository):
+   - Format: `namespace.folder.subfolder.command.sh`
+   - Example: `myproject.git.create-issue-branch.sh`
+
+2. **If no command namespace is defined**:
+   - Format: `folder.subfolder.command.sh`
+   - Example: `git.create-issue-branch.sh`
 
 3. **For nested paths**:
    - A file at `~/scripts/remote/dev/test.sh` becomes:
-     - With namespace: `namespace.remote.dev.test`
-     - Without namespace: `remote.dev.test`
+     - With namespace: `namespace.remote.dev.test.sh`
+     - Without namespace: `remote.dev.test.sh`
 
 4. **Files in the root of the scanned directory**:
-   - Become `namespace.root.scriptname` (with namespace)
-   - Or `root.scriptname` (without namespace)
+   - Become `namespace.root.scriptname.sh` (with namespace)
+   - Or `root.scriptname.sh` (without namespace)
+
+**Aliases** (created in your shell init files):
+
+Aliases are automatically created in your shell init files (`~/.bashrc`, `~/.zshrc`) after scanning. They exclude the command namespace prefix for easier access:
+
+- Wrapper: `myproject.git.create-issue-branch.sh` → Alias: `git.create-issue-branch`
+- Wrapper: `git.create-issue-branch.sh` → Alias: `git.create-issue-branch`
+
+**With alias prefix configured:**
+
+If `OPSC_ALIAS_PREFIX` is set (via environment variable or `.aliases.namespace` in `.ops-command.yaml`):
+- Wrapper: `myproject.git.create-issue-branch.sh` → Alias: `myops.git.create-issue-branch` (if prefix is `myops`)
+- The alias prefix is added, but the command namespace is still excluded
+
+This allows you to use commands without typing the command namespace, while wrapper scripts remain organized with namespaces. The alias prefix provides an optional way to group aliases from different repositories.
 
 ### Supported Executable Types
 
@@ -387,5 +409,23 @@ ops supports any executable file with a shebang, including:
 - **Other interpreted languages**: Any executable with a valid shebang
 
 Binary executables without shebangs are skipped during scanning.
+
+### Built-in Functions
+
+ops includes a functions library that is automatically sourced during initialization.
+Functions are located in `${HOME}/ops-command/lib/functions` and are sourced automatically
+when your shell initializes.
+
+**Available Functions:**
+
+- `secret.set <variable_name>`: Prompts for a secret value and sets it as an environment variable
+  ```bash
+  secret.set MY_API_KEY
+  # Prompts: "Enter in value for the variable 'MY_API_KEY': "
+  # Sets MY_API_KEY environment variable
+  ```
+
+Additional functions can be added by placing `.sh` files in the `lib/functions` directory.
+These will be automatically sourced on the next initialization.
 
 [Back to Top](#top)
