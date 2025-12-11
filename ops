@@ -872,20 +872,8 @@ show_version() {
     exit 0
 }
 
-# Show help message
-show_help() {
-    echo "Usage:"
-    echo "  ops ---init: Initialize the script's internal config"
-    echo "  ops ---scan <target_dir>: Initialize and scan the target directory for executables"
-    echo "  ops ---help: Show this help message"
-    echo "  ops ---version: Show version information"
-    echo "  ops ---completion: Generate and install shell completion scripts"
-    echo "  ops ---update: Check for updates and update ops and command repos"
-    echo "  ops ---update-command-repos: Update local command repositories"
-    echo "  ops <sub_command>: Execute a sub-command"
-    echo ""
-    
-    # List local command repositories
+# List local command repositories
+list_command_repos() {
     local git_dir="${OPSC_WORKSPACE_DIR}/git"
     local repos_found=false
     
@@ -910,6 +898,23 @@ show_help() {
         echo "  (no command repos found)"
         echo ""
     fi
+}
+
+# Show help message
+show_help() {
+    echo "Usage:"
+    echo "  ops ---init: Initialize the script's internal config"
+    echo "  ops ---scan <target_dir>: Initialize and scan the target directory for executables"
+    echo "  ops ---help: Show this help message"
+    echo "  ops ---version: Show version information"
+    echo "  ops ---completion: Generate and install shell completion scripts"
+    echo "  ops ---update: Check for updates and update ops and command repos"
+    echo "  ops ---update-command-repos: Update local command repositories"
+    echo "  ops <sub_command>: Execute a sub-command"
+    echo ""
+    
+    # List local command repositories
+    list_command_repos
     
     if [ ! -f "$OPSC_COMMAND_INDEX" ]; then
         echo "No command index found. Run 'ops ---scan <dir>' to create one."
