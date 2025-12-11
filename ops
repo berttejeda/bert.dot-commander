@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.7.0"
+__version__="0.8.0"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
@@ -468,6 +468,13 @@ clone_git_repo() {
             exit 1
         fi
         log_info "Repository cloned successfully"
+    fi
+    
+    # Update init block to include functions from this repo's lib/functions (if any)
+    # This ensures functions are available immediately after cloning
+    # add_init_block() handles deduplication by replacing the entire block
+    if [ -d "${repo_path}/lib/functions" ]; then
+        add_init_block
     fi
     
     echo "$repo_path"
