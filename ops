@@ -311,6 +311,24 @@ source \"\${OPSC_WORKSPACE_DIR}/lib/functions/${filename}\""
         done < <(find "$functions_dir" -maxdepth 1 -type f -name "*.sh" -print0 2>/dev/null | sort -z)
     fi
     
+    # Add source lines for each .sh file in command repos' lib/functions
+    local repos
+    repos=$(get_command_repos)
+    if [ -n "$repos" ]; then
+        while IFS= read -r repo; do
+            if [ -n "$repo" ] && [ -d "$repo" ] && [ -d "${repo}/lib/functions" ]; then
+                # Calculate relative path from workspace directory
+                local rel_path="${repo#${OPSC_WORKSPACE_DIR}/}"
+                # Find all .sh files and add source lines
+                while IFS= read -r -d '' file; do
+                    local filename=$(basename "$file")
+                    init_block="${init_block}
+source \"\${OPSC_WORKSPACE_DIR}/${rel_path}/lib/functions/${filename}\""
+                done < <(find "${repo}/lib/functions" -maxdepth 1 -type f -name "*.sh" -print0 2>/dev/null | sort -z)
+            fi
+        done <<< "$repos"
+    fi
+    
     init_block="${init_block}
 # <<< ops-command <<<"
 
@@ -872,25 +890,31 @@ show_version() {
     exit 0
 }
 
-# List local command repositories
-list_command_repos() {
+# Get list of local command repositories
+get_command_repos() {
     local git_dir="${OPSC_WORKSPACE_DIR}/git"
-    local repos_found=false
     
     if [ -d "$git_dir" ]; then
-        local repos
-        repos=$(find "$git_dir" -type d -name ".git" 2>/dev/null | sed 's|/.git$||' | sort)
-        if [ -n "$repos" ]; then
-            echo "Local command repos:"
-            echo ""
-            while IFS= read -r repo; do
-                if [ -n "$repo" ] && [ -d "$repo" ]; then
-                    echo "  - $repo"
-                    repos_found=true
-                fi
-            done <<< "$repos"
-            echo ""
-        fi
+        find "$git_dir" -type d -name ".git" 2>/dev/null | sed 's|/.git$||' | sort
+    fi
+}
+
+# List local command repositories
+list_command_repos() {
+    local repos
+    repos=$(get_command_repos)
+    local repos_found=false
+    
+    if [ -n "$repos" ]; then
+        echo "Local command repos:"
+        echo ""
+        while IFS= read -r repo; do
+            if [ -n "$repo" ] && [ -d "$repo" ]; then
+                echo "  - $repo"
+                repos_found=true
+            fi
+        done <<< "$repos"
+        echo ""
     fi
     
     if [ "$repos_found" = false ]; then
