@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.8.0"
+__version__="0.9.0"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
@@ -108,6 +108,8 @@ determine_alias_prefix() {
             exit 2
         fi
         alias_prefix=$(yq eval '.aliases.namespace // ""' "$config_file" 2>/dev/null || echo "")
+        echo $alias_prefix
+        exit
         if [ -n "$alias_prefix" ]; then
             if [ "$quiet" != "true" ]; then
                 log_info "Found alias prefix in .ops-command.yaml: ${alias_prefix}" >&2
@@ -270,8 +272,8 @@ EOF
 add_init_block() {
     # Find the repository root to locate lib/functions
     local repo_root=""
+    local command_repo_path="${1-}"
     local ops_script_path=$(which ops 2>/dev/null || echo "")
-    
     # Try to find repo root from current script location or git
     if [ -n "$ops_script_path" ] && [ -f "$ops_script_path" ]; then
         # Check if ops script is in a git repo
@@ -280,9 +282,8 @@ add_init_block() {
             repo_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || echo "")
         fi
     fi
-    
     # If not found, try current directory
-    if [ -z "$repo_root" ]; then
+    if [[ -z "$repo_root" ]]; then
         if git rev-parse --git-dir > /dev/null 2>&1; then
             repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
         fi
@@ -294,20 +295,20 @@ add_init_block() {
 OPSC_WORKSPACE_DIR=\${OPSC_WORKSPACE_DIR-\${HOME}/ops-command}
 export PATH=\"\${OPSC_WORKSPACE_DIR}/bin:\$PATH\""
     
-    # Add source lines for each .sh file in lib/functions
+    # Add source lines for ops tool's own lib/functions
+    # Command repo functions are handled separately via get_command_repos() below
     local functions_dir=""
-    if [ -n "$repo_root" ] && [ -d "${repo_root}/lib/functions" ]; then
+    if [[ -n "$repo_root" ]] && [[ -d "${repo_root}/lib/functions" ]]; then
         functions_dir="${repo_root}/lib/functions"
     elif [ -d "${OPSC_WORKSPACE_DIR}/lib/functions" ]; then
         functions_dir="${OPSC_WORKSPACE_DIR}/lib/functions"
     fi
-    
     if [ -n "$functions_dir" ] && [ -d "$functions_dir" ]; then
         # Find all .sh files and add source lines
         while IFS= read -r -d '' file; do
             local filename=$(basename "$file")
             init_block="${init_block}
-source \"\${OPSC_WORKSPACE_DIR}/lib/functions/${filename}\""
+source \"${functions_dir}/${filename}\""
         done < <(find "$functions_dir" -maxdepth 1 -type f -name "*.sh" -print0 2>/dev/null | sort -z)
     fi
     
@@ -421,7 +422,7 @@ update_aliases_block() {
 # Check if a string is a git URL
 is_git_url() {
     local url="$1"
-    [[ "$url" =~ ^https://.*\.git$ ]] || [[ "$url" =~ ^git@.*:.*\.git$ ]]
+    [[ "$url" =~ ^https?://[^/]+/[^/]+/[^/]+ ]] || [[ "$url" =~ ^git@.*:.*\.git$ ]]
 }
 
 # Clone git repository if URL is provided
@@ -433,11 +434,15 @@ clone_git_repo() {
     local repo_path=""
     
     # Parse git URL to extract server, owner, and repo
-    # Support HTTPS format: https://server.com/owner/repo.git
-    if [[ "$git_url" =~ ^https://([^/]+)/([^/]+)/([^/]+)\.git$ ]]; then
-        server="${BASH_REMATCH[1]}"
-        owner="${BASH_REMATCH[2]}"
-        repo="${BASH_REMATCH[3]}"
+    # Support HTTP/HTTPS format: http[s]://[user:pass@]server[:port]/owner/repo[.git]
+    if [[ "$git_url" =~ ^https?://([^@]+@)?([^/]+)/([^/]+)/([^/]+)$ ]]; then
+        server="${BASH_REMATCH[2]}"
+        # Sanitize server name for filesystem (replace : with _)
+        server="${server//:/_}"
+        owner="${BASH_REMATCH[3]}"
+        repo="${BASH_REMATCH[4]}"
+        # Strip .git suffix if present
+        repo="${repo%.git}"
     # Support SSH format: git@server.com:owner/repo.git
     elif [[ "$git_url" =~ ^git@([^:]+):([^/]+)/([^/]+)\.git$ ]]; then
         server="${BASH_REMATCH[1]}"
@@ -446,7 +451,8 @@ clone_git_repo() {
     else
         log_error "Unsupported git URL format: ${git_url}"
         log_error "Supported formats:"
-        log_error "  - https://server.com/owner/repo.git"
+        log_error "  - https://server.com/owner/repo[.git]"
+        log_error "  - http://[user:pass@]server[:port]/owner/repo[.git]"
         log_error "  - git@server.com:owner/repo.git"
         exit 1
     fi
@@ -473,8 +479,8 @@ clone_git_repo() {
     # Update init block to include functions from this repo's lib/functions (if any)
     # This ensures functions are available immediately after cloning
     # add_init_block() handles deduplication by replacing the entire block
-    if [ -d "${repo_path}/lib/functions" ]; then
-        add_init_block
+    if [[ -d "${repo_path}/lib/functions" ]]; then
+        add_init_block "${repo_path}"
     fi
     
     echo "$repo_path"
@@ -512,10 +518,12 @@ scan_and_create_wrappers() {
         local repo=""
         
         # Parse git URL to extract owner and repo for backward compatibility check
-        # Support HTTPS format: https://server.com/owner/repo.git
-        if [[ "$scan_target" =~ ^https://[^/]+/([^/]+)/([^/]+)\.git$ ]]; then
-            owner="${BASH_REMATCH[1]}"
-            repo="${BASH_REMATCH[2]}"
+        # Support HTTP/HTTPS format: http[s]://[user:pass@]server[:port]/owner/repo[.git]
+        if [[ "$scan_target" =~ ^https?://([^@]+@)?[^/]+/([^/]+)/([^/]+)$ ]]; then
+            owner="${BASH_REMATCH[2]}"
+            repo="${BASH_REMATCH[3]}"
+            # Strip .git suffix if present
+            repo="${repo%.git}"
         # Support SSH format: git@server.com:owner/repo.git
         elif [[ "$scan_target" =~ ^git@[^:]+:([^/]+)/([^/]+)\.git$ ]]; then
             owner="${BASH_REMATCH[1]}"
@@ -553,13 +561,14 @@ scan_and_create_wrappers() {
     # Determine namespace from the cloned/scan directory
     local OPSC_NAMESPACE
     OPSC_NAMESPACE=$(determine_namespace "$scan_dir")
-    
     # Determine alias prefix from the cloned/scan directory (only if not already set)
     if [ -z "${OPSC_ALIAS_PREFIX:-}" ]; then
         local config_alias_prefix
         config_alias_prefix=$(determine_alias_prefix "$scan_dir")
         if [ -n "$config_alias_prefix" ]; then
             OPSC_ALIAS_PREFIX="$config_alias_prefix"
+        else 
+            OPSC_ALIAS_PREFIX="${OPSC_NAMESPACE}"
         fi
     fi
     
@@ -571,10 +580,18 @@ scan_and_create_wrappers() {
     echo "commands:" > "$temp_index"
     
     local alias_entries=()
+    local requirements_files=()
     local file_count=0
     
     # Find all files, excluding node_modules and .git
     while IFS= read -r -d '' file; do
+        # Check for requirements.txt
+        local base_name=$(basename "$file")
+        if [ "$base_name" == "requirements.txt" ]; then
+            requirements_files+=("$file")
+            continue
+        fi
+
         # Skip if file should be excluded
         if should_skip_file "$file"; then
             continue
@@ -583,7 +600,6 @@ scan_and_create_wrappers() {
         # Get relative path from scan_dir
         local rel_path="${file#$scan_dir/}"
         local dir_path=$(dirname "$rel_path")
-        local base_name=$(basename "$file")
         local name_without_ext="${base_name%.*}"
         
         # Build wrapper name components from directory path
@@ -680,6 +696,26 @@ scan_and_create_wrappers() {
     if [ ${#alias_entries[@]} -gt 0 ]; then
         update_aliases_block "${alias_entries[@]}"
     fi
+
+    # Process requirements.txt files
+    if [ ${#requirements_files[@]} -gt 0 ]; then
+        echo ""
+        log_info "Found ${#requirements_files[@]} requirements.txt file(s)."
+        if [ ${#requirements_files[@]} -gt 1 ]; then
+            echo -n "Install all requirements? [y/N] "
+            read -r response
+            if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+                for req_file in "${requirements_files[@]}"; do
+                    log_info "Running pip install -r \"${req_file}\"..."
+                    if pip install -r "$req_file"; then
+                        log_info "Successfully installed requirements from ${req_file}"
+                    else
+                        log_error "Failed to install requirements from ${req_file}"
+                    fi
+                done
+            fi
+        fi
+    fi
 }
 
 # Initialize ops-command
@@ -689,9 +725,9 @@ init_dot_commander() {
     # Create workspace directory
     mkdir -p "${OPSC_WORKSPACE_DIR}"
     mkdir -p "${OPSC_BIN_DIR}"
-    
+    scan_dir=${1-}
     # Add initialization block to shell init files
-    add_init_block
+    add_init_block ${scan_dir}
     
     log_info "ops-command initialized"
     log_info "Run \`ops ---help\` for usage information"
@@ -1287,7 +1323,7 @@ main() {
     # Handle ---scan: automatically initializes and scans
     if [ -n "$scan_dir" ]; then
         # Initialize (if not already done) and scan
-        init_dot_commander
+        init_dot_commander "$scan_dir"
         scan_and_create_wrappers "$scan_dir"
         exit 0
     fi
