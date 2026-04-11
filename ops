@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.9.1"
+__version__="0.9.2"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
@@ -1053,17 +1053,18 @@ check_ops_updates() {
         return 1
     fi
     
-    # Check if ops was installed via installer (in /usr/local/bin or similar)
-    if [[ "$ops_path" != *"ops-command"* ]] && [[ "$ops_path" =~ ^/(usr|opt|usr/local)/bin/ ]]; then
-        # Try to get latest tag from GitHub
-        local repo_url="https://github.com/berttejeda/bert.ops-command.git"
-        local latest_tag=""
-        
-        if command -v git &> /dev/null; then
-            latest_tag=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -v '\^{}' | sed 's/.*refs\/tags\///' | sort -V | tail -1 || echo "")
-        fi
-        
-        if [ -n "$latest_tag" ] && [ "$latest_tag" != "v${current_version}" ] && [ "$latest_tag" != "${current_version}" ]; then
+    # Try to get latest tag from GitHub
+    local repo_url="https://github.com/berttejeda/bert.ops-command.git"
+    local latest_tag=""
+    
+    if command -v git &> /dev/null; then
+        latest_tag=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -v '\^{}' | sed 's/.*refs\/tags\///' | sort -V | tail -1 || echo "")
+    fi
+    
+    if [ -n "$latest_tag" ]; then
+        # Strip leading 'v' from tag for comparison
+        local tag_version="${latest_tag#v}"
+        if [ "$tag_version" != "${current_version}" ]; then
             echo "$latest_tag"
             return 0
         fi
