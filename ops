@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.9.2"
+__version__="0.9.3"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
