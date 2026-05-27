@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version
-__version__="0.9.3"
+__version__="0.10.0"
 
 # Configuration
 OPSC_WORKSPACE_DIR="${OPSC_WORKSPACE_DIR:-${HOME}/ops-command}"
@@ -159,6 +159,25 @@ get_shell_type() {
     
     # Default to bash if we can't determine
     echo "bash"
+}
+
+# Detect if the current Python environment is a uv virtual environment
+is_uv_venv() {
+    if [ -n "${VIRTUAL_ENV:-}" ] && [ -f "${VIRTUAL_ENV}/pyvenv.cfg" ]; then
+        if grep -qi 'uv' "${VIRTUAL_ENV}/pyvenv.cfg" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Get the appropriate pip command (uv pip if in a uv venv, otherwise pip)
+get_pip_command() {
+    if is_uv_venv; then
+        echo "uv pip"
+    else
+        echo "pip"
+    fi
 }
 
 # Check if a file has a shebang
@@ -705,9 +724,11 @@ scan_and_create_wrappers() {
             echo -n "Install all requirements? [y/N] "
             read -r response
             if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+                local pip_cmd
+                pip_cmd=$(get_pip_command)
                 for req_file in "${requirements_files[@]}"; do
-                    log_info "Running pip install -r \"${req_file}\"..."
-                    if pip install -r "$req_file"; then
+                    log_info "Running ${pip_cmd} install -r \"${req_file}\"..."
+                    if $pip_cmd install -r "$req_file"; then
                         log_info "Successfully installed requirements from ${req_file}"
                     else
                         log_error "Failed to install requirements from ${req_file}"
